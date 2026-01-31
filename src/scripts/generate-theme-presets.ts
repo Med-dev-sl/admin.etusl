@@ -108,10 +108,52 @@ const updated = fileContent.replace(
 );
 
 async function main() {
-  const formatted = execFileSync("npx", ["@biomejs/biome", "format", "--stdin-file-path", outputPath], {
-    input: updated,
-    encoding: "utf8",
-  });
+  const localBiome = path.resolve(
+    process.cwd(),
+    "node_modules",
+    ".bin",
+    process.platform === "win32" ? "biome.cmd" : "biome",
+  );
+
+  let formatted: string;
+
+  try {
+    if (fs.existsSync(localBiome)) {
+      // Prefer local biome from node_modules/.bin for reproducible behavior
+      if (process.platform === "win32") {
+        // On Windows, execute the .cmd via cmd /c to avoid spawn/exec EINVAL issues
+        formatted = execFileSync("cmd", ["/c", localBiome, "format", "--stdin-file-path", outputPath], {
+          input: updated,
+          encoding: "utf8",
+        }) as string;
+      } else {
+        formatted = execFileSync(localBiome, ["format", "--stdin-file-path", outputPath], {
+          input: updated,
+          encoding: "utf8",
+        }) as string;
+      }
+    } else {
+      // Fallback to npm exec which should be available when npm is installed
+      formatted = execFileSync(
+        "npm",
+        ["exec", "--no", "--", "@biomejs/biome", "format", "--stdin-file-path", outputPath],
+        {
+          input: updated,
+          encoding: "utf8",
+        },
+      ) as string;
+    }
+  } catch (err) {
+    try {
+      // Last resort: try calling a globally installed `biome` if present
+      formatted = execFileSync("biome", ["format", "--stdin-file-path", outputPath], {
+        input: updated,
+        encoding: "utf8",
+      }) as string;
+    } catch (err2) {
+      throw err; // rethrow the original error to be handled below
+    }
+  }
 
   if (formatted === fileContent) {
     console.log("ℹ️  No changes in theme.ts");
